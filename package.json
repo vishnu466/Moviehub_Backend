@@ -1,12 +1,15 @@
 
 {
   "name": "moviehub-backend",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.2"
-    /* If Node < 18: add "node-fetch": "^2.6.7" and uncomment the import in server.js */
   },
   "scripts": {
     "start": "node server.js"
