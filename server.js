@@ -1,19 +1,23 @@
 
+// server.js
 import express from "express";
 import cors from "cors";
-// If your Render service uses Node 18+, `fetch` is available globally.
-// If not, uncomment the next line and add node-fetch to dependencies.
+// If your Render runtime is Node < 18, uncomment the next line and add `node-fetch` to dependencies.
 // import fetch from "node-fetch";
 
 const app = express();
-app.use(cors());
 
-const TMDB_API_KEY = process.env.TMDB_API_KEY; // v3 API key (query param auth)
+// CORS: During development, '*' is fine. In production, set CORS_ALLOW_ORIGIN to your frontend URL.
+app.use(cors({
+  origin: process.env.CORS_ALLOW_ORIGIN || "*",
+}));
+
+const TMDB_API_KEY = process.env.TMDB_API_KEY; // v3 API key via query param
 const TMDB_BASE = "https://api.themoviedb.org/3";
 
 /**
- * Existing: Now Playing
  * GET /api/movies/now_playing?page=1
+ * Server-side call to TMDB's Now Playing endpoint.
  */
 app.get("/api/movies/now_playing", async (req, res) => {
   try {
@@ -29,27 +33,27 @@ app.get("/api/movies/now_playing", async (req, res) => {
     }
 
     const data = await r.json();
-    // Optional cache header
+    // Cache for 60s to ease load
     res.set("Cache-Control", "public, max-age=60");
     res.json(data);
   } catch (err) {
+    console.error("[NOW PLAYING EXCEPTION]", err);
     res.status(500).json({ error: "Proxy failed", details: err.message });
   }
 });
 
 /**
- * NEW: TMDB Image Proxy
- * GET /api/image?path=/bjUWGw0Ao0qVWxagN3VCwBJHVo6.jpg&size=w500
- *
- * - path: required, must start with '/'
- * - size: one of w92, w154, w185, w342, w500, w780, original (default: w500)
+ * GET /api/image?path=/<file_path>&size=w500
+ * Streams TMDB images to the browser from YOUR domain.
+ * Required: path starts with "/"
+ * Optional: size in {w92, w154, w185, w342, w500, w780, original} — default w500
  */
 app.get("/api/image", async (req, res) => {
   try {
     const path = req.query.path;
     const size = String(req.query.size || "w500");
 
-    if (!path || typeof path !== "string" || !path.startsWith("/")) {
+    if (!path || typeof path !== "string" || !path.startswith("/")) {
       return res.status(400).send('Invalid "path". It must start with "/".');
     }
 
@@ -60,14 +64,14 @@ app.get("/api/image", async (req, res) => {
       redirect: "follow",
       headers: {
         Accept: "image/*",
-        // Some CDNs/WAFs are friendlier with a UA
-        "User-Agent": "TMDB-Proxy/1.0 (+https://render.com)",
+        // Helpful for some CDNs/WAFs
+        "User-Agent": "MovieHub-Image-Proxy/1.0 (+https://render.com)",
       },
     });
 
     if (!upstream.ok) {
       const text = await upstream.text().catch(() => upstream.statusText);
-      // Forward upstream status directly—helps you see 403/404 instead of 500
+      // Forward the upstream status (403/404/etc.) to aid debugging
       return res
         .status(upstream.status)
         .send(`TMDB responded ${upstream.status}: ${text || upstream.statusText}`);
@@ -75,10 +79,9 @@ app.get("/api/image", async (req, res) => {
 
     const ctype = upstream.headers.get("content-type") || "image/jpeg";
     res.set("Content-Type", ctype);
-    // Cache images for a day (tune as needed)
+    // Posters rarely change—cache for a day
     res.set("Cache-Control", "public, max-age=86400");
 
-    // Stream the image body to the client
     upstream.body.pipe(res);
   } catch (err) {
     console.error("[IMAGE PROXY EXCEPTION]", err);
@@ -86,5 +89,5 @@ app.get("/api/image", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 10000; // Render sets PORT
-app.listen(PORT, () => console.log(`Proxy running on port ${PORT}`));
+const PORT = process.env.PORT || 10000; // Render injects PORT
+app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
